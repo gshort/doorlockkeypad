@@ -1,3 +1,5 @@
+#define DEBUG
+
 #include <SPI.h>
 #include <Ethernet.h>
 #include <FastSPI_LED2.h>
@@ -62,7 +64,14 @@ void loop() {
       code = "";
     }
   }
-  char key = keypad.getKey();
+  char key;
+#ifdef DEBUG
+  if(Serial.available()) {
+    key = Serial.read();
+  }
+#else
+  key = keypad.getKey();
+#endif
   if(key) {
     if(key == '#' || key == '*') {
       if(authorize(code)) {
@@ -76,14 +85,6 @@ void loop() {
       }
     } else {
       code += key;
-    }
-  }
-  if(millis() % 10000 == 0) {
-    LEDS.showColor(CRGB(0, 255, 255));
-    if(authorize("1596")) {
-      alert_allow();
-    } else {
-      alert_deny();
     }
   }
 }
