@@ -42,9 +42,7 @@ void loop() {
     codestart = millis(); //reset the timeout
     if((key == '#' || key == '*') && code.length() > 0) {
       if(authorize(code)) {
-        digitalWrite(DOOR_PIN, HIGH); //unlock the door
         alert_allow();
-        digitalWrite(DOOR_PIN, LOW); //lock the door
         code = "";
       } else {
         alert_deny();
