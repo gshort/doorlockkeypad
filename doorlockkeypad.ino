@@ -1,11 +1,4 @@
-#define DEBUG
-
-#include <SPI.h>
-#include <Ethernet.h>
 #include <FastSPI_LED2.h>
-#include <b64.h>
-#include <HttpClient.h>
-#include <aJSON.h>
 #include <math.h>
 #include <Keypad.h>
 
@@ -14,14 +7,6 @@
 #define NUM_LEDS 12
 
 struct CRGB leds[NUM_LEDS];
-
-byte mac[] = { 0x90, 0xA2, 0xDA, 0x00, 0x39, 0x0F };
-char server[] = "www.eriemakerspace.com";
-char path[] = "/ems_auth.php";
-IPAddress ip(192,168,0,234);
-EthernetClient eClient;
-const int networkTimeout = 30*1000;
-const int networkDelay = 1000;
 
 const byte rows = 4; //four rows
 const byte cols = 3; //three columns
@@ -38,8 +23,6 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 String code = "";
 int codestart = 0;
 
-HttpClient http(eClient);
-
 void setup() {
   
   Serial.begin(9600);
@@ -47,41 +30,23 @@ void setup() {
     ; // wait for serial port to connect
   }
   
-  Serial.println("Configuring lights...");
   LEDS.addLeds<WS2801, 5, 7, BGR>(leds, NUM_LEDS); //use non-spi pins in software mode...we're only driving 12 LEDs anyhow
   LEDS.showColor(CRGB(255, 100, 0));
   
-  Serial.println("Initializing ethernet...");
-  if (Ethernet.begin(mac) == 0) {
-    Serial.println("Failed to configure Ethernet using DHCP");
-    Ethernet.begin(mac, ip);
-  }
-  delay(1000);
-  Serial.println(Ethernet.localIP());
-  Serial.println("Boot complete!");
   delay(1000);
 }
 
 void loop() {
-  char key = 0;
-  if(Serial.available()) {
-    key = Serial.read();
-  } else {
-    key = keypad.getKey();
-  }
+  char key = keypad.getKey();
   if(key) {
-    Serial.println("Read key: " + key);
-    if(key == '#' || key == '*') {
-      Serial.println("Authorizing code: " + code);
-      status_thinking();
+    codestart = millis(); //reset the timeout
+    if((key == '#' || key == '*') && code.length() > 0) {
       if(authorize(code)) {
-        Serial.println("Code authorized");
         digitalWrite(DOOR_PIN, HIGH); //unlock the door
         alert_allow();
         digitalWrite(DOOR_PIN, LOW); //lock the door
         code = "";
       } else {
-        Serial.println("Code denied");
         alert_deny();
         code = "";
       }
@@ -91,7 +56,6 @@ void loop() {
   }
   if(code.length() <= 0) {
     status_idling();
-    codestart = millis();
   } else {
     if(millis() - codestart > 5000) {
       status_idling();
@@ -104,49 +68,12 @@ void loop() {
 }
 
 boolean authorize(String code) { //given a PIN, check authorization against web server
-  String result;
-  int err = http.get(server, path);
-  if (err == 0) {
-    err = http.responseStatusCode();
-    if (err != 200) {
-      Serial.print("Bad http status: ");
-      Serial.println(err);
-      return(false);
-    } else {
-      String result = "";
-      err = http.skipResponseHeaders();
-      if (err >= 0) {
-        int bodyLen = http.contentLength();
-        unsigned long timeoutStart = millis();
-        char c;
-        while ((http.connected() || http.available()) && ((millis() - timeoutStart) < networkTimeout)) {
-          if (http.available()) {
-            result += char(http.read());
-            bodyLen--;
-            timeoutStart = millis();
-          } else {
-            delay(networkDelay);
-          }
-        }
-      } else {
-        Serial.print("Failed to skip response headers: ");
-        Serial.println(err);
-        return(false);
-      }
-    }
-  } else {
-    Serial.print("Connect failed: ");
-    Serial.println(err);
-    return(false);
+  status_thinking();
+  Serial.println("Code: " + code);
+  while(!Serial.available()) {
+    status_thinking();
   }
-  http.stop();
-  Serial.println(result);
-  return(check_auth_result(result));
-}
-
-boolean check_auth_result(String json) {
-  //parse the json and look for authorization
-  return(false);
+  return(Serial.read());
 }
 
 void status_idling() { //slowly "breathe" blue, deterministic: call as often as convenient (or possible)
@@ -155,17 +82,17 @@ void status_idling() { //slowly "breathe" blue, deterministic: call as often as 
   }
 }
 
-void status_reading() { //quickly "breathe" yellow, deterministic: call as often as convenient (or possible)
-  if(millis() % 10 == 0) {
-    int v = floor((sin(float(millis()) / 100.0) * 0.5 + 0.5) * 255);
-    LEDS.showColor(CRGB(v, v, 0));
-  }
-}
-
-void status_thinking() { //spin a rainbow, deterministic: call as often as convenient (or possible)
+void status_reading() { //spin a rainbow, deterministic: call as often as convenient (or possible)
   if(millis() % 10 == 0) {
     fill_rainbow(leds, NUM_LEDS, float(millis()) / 4.0, 20.0);
     LEDS.show();
+  }
+}
+
+void status_thinking() { //quickly "breathe" yellow, deterministic: call as often as convenient (or possible)
+  if(millis() % 10 == 0) {
+    int v = floor((sin(float(millis()) / 100.0) * 0.5 + 0.5) * 255);
+    LEDS.showColor(CRGB(v, v, 0));
   }
 }
 
