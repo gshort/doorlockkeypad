@@ -38,48 +38,50 @@ Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 String code = "";
 int codestart = 0;
 
+HttpClient http(eClient);
+
 void setup() {
-//  LEDS.addLeds<WS2801>(leds, NUM_LEDS); //can't use the SPI pins with the ethernet shield in place
-  LEDS.addLeds<WS2801, 5, 7, BGR>(leds, NUM_LEDS); //use non-spi pins in software mode...we're only driving 12 LEDs anyhow
-  LEDS.showColor(CRGB(255, 100, 0)); //boot status color
   
   Serial.begin(9600);
   while (!Serial) {
     ; // wait for serial port to connect
   }
+  
+  Serial.println("Configuring lights...");
+  LEDS.addLeds<WS2801, 5, 7, BGR>(leds, NUM_LEDS); //use non-spi pins in software mode...we're only driving 12 LEDs anyhow
+  LEDS.showColor(CRGB(255, 100, 0));
+  
+  Serial.println("Initializing ethernet...");
   if (Ethernet.begin(mac) == 0) {
     Serial.println("Failed to configure Ethernet using DHCP");
     Ethernet.begin(mac, ip);
   }
-  delay(1000); //need a delay here for a quirky library or two
+  delay(1000);
+  Serial.println(Ethernet.localIP());
+  Serial.println("Boot complete!");
+  delay(1000);
 }
 
 void loop() {
-  if(code.length() <= 0) {
-    status_idling();
-    codestart = millis();
-  } else {
-    status_reading();
-    if(millis() - codestart > 5000) {
-      code = "";
-    }
-  }
-  char key;
-#ifdef DEBUG
+  char key = 0;
   if(Serial.available()) {
     key = Serial.read();
+  } else {
+    key = keypad.getKey();
   }
-#else
-  key = keypad.getKey();
-#endif
   if(key) {
+    Serial.println("Read key: " + key);
     if(key == '#' || key == '*') {
+      Serial.println("Authorizing code: " + code);
+      status_thinking();
       if(authorize(code)) {
+        Serial.println("Code authorized");
         digitalWrite(DOOR_PIN, HIGH); //unlock the door
         alert_allow();
         digitalWrite(DOOR_PIN, LOW); //lock the door
         code = "";
       } else {
+        Serial.println("Code denied");
         alert_deny();
         code = "";
       }
@@ -87,15 +89,24 @@ void loop() {
       code += key;
     }
   }
+  if(code.length() <= 0) {
+    status_idling();
+    codestart = millis();
+  } else {
+    if(millis() - codestart > 5000) {
+      status_idling();
+      code = "";
+      codestart = millis();
+    } else {
+      status_reading();
+    }
+  }
 }
 
 boolean authorize(String code) { //given a PIN, check authorization against web server
-  HttpClient http(eClient);
   String result;
   int err = http.get(server, path);
   if (err == 0) {
-    Serial.println("startedRequest ok");
-
     err = http.responseStatusCode();
     if (err != 200) {
       Serial.print("Bad http status: ");
@@ -108,7 +119,6 @@ boolean authorize(String code) { //given a PIN, check authorization against web 
         int bodyLen = http.contentLength();
         unsigned long timeoutStart = millis();
         char c;
-        // Whilst we haven't timed out & haven't reached the end of the body
         while ((http.connected() || http.available()) && ((millis() - timeoutStart) < networkTimeout)) {
           if (http.available()) {
             result += char(http.read());
@@ -160,15 +170,15 @@ void status_thinking() { //spin a rainbow, deterministic: call as often as conve
 }
 
 void alert_deny() { //flash red three times and fade out after the third, blocking: takes roughly 1 second total
-  LEDS.showColor(CRGB(255, 0, 255));
+  LEDS.showColor(CRGB(255, 0, 0));
   delay(100);
   LEDS.showColor(CRGB(0, 0, 0));
   delay(50);
-  LEDS.showColor(CRGB(255, 0, 255));
+  LEDS.showColor(CRGB(255, 0, 0));
   delay(100);
   LEDS.showColor(CRGB(0, 0, 0));
   delay(50);
-  LEDS.showColor(CRGB(255, 0, 255));
+  LEDS.showColor(CRGB(255, 0, 0));
   delay(100);
   LEDS.showColor(CRGB(0, 0, 0));
   delay(50);
