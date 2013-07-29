@@ -16,62 +16,65 @@ char keys[rows][cols] = {
   {'7','8','9'},
   {'#','0','*'}
 };
-byte rowPins[rows] = {A3, A2, A1, A0}; //connect to the row pinouts of the keypad
-byte colPins[cols] = {4, 3, 2}; //connect to the column pinouts of the keypad
+byte rowPins[rows] = {2, 3, 4, 5}; //connect to the row pinouts of the keypad
+byte colPins[cols] = {6, 7, 8}; //connect to the column pinouts of the keypad
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 
 String code = "";
 int codestart = 0;
 
 void setup() {
-  
   Serial.begin(9600);
   while (!Serial) {
     ; // wait for serial port to connect
   }
   
-  LEDS.addLeds<WS2801, 5, 7, BGR>(leds, NUM_LEDS); //use non-spi pins in software mode...we're only driving 12 LEDs anyhow
+  LEDS.addLeds<WS2801>(leds, NUM_LEDS);
   LEDS.showColor(CRGB(255, 100, 0));
   
   delay(1000);
+  Serial.println("Ready...");
+  Serial.println(code.length());
 }
 
 void loop() {
   char key = keypad.getKey();
-  if(key) {
+  if(key != NO_KEY) {
     codestart = millis(); //reset the timeout
-    if((key == '#' || key == '*') && code.length() > 0) {
-      if(authorize(code)) {
-        alert_allow();
-        code = "";
-      } else {
+    if(key == '#' || key == '*') {
+      if(code.length <= 0) {
         alert_deny();
-        code = "";
+      } else {
+        if(authorize(code)) {
+          alert_allow();
+          code = "";
+        } else {
+          alert_deny();
+          code = "";
+        }
       }
     } else {
       code += key;
     }
   }
+  if(millis() - codestart > 5000) {
+    code = "";
+  }
   if(code.length() <= 0) {
     status_idling();
   } else {
-    if(millis() - codestart > 5000) {
-      status_idling();
-      code = "";
-      codestart = millis();
-    } else {
-      status_reading();
-    }
+    status_reading();
   }
 }
 
-boolean authorize(String code) { //given a PIN, check authorization against web server
+boolean authorize(String code) { //given a PIN, check authorization via serial
   status_thinking();
   Serial.println("Code: " + code);
+  return(false);
   while(!Serial.available()) {
     status_thinking();
   }
-  return(Serial.read());
+  return(boolean(Serial.read()));
 }
 
 void status_idling() { //slowly "breathe" blue, deterministic: call as often as convenient (or possible)
