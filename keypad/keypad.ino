@@ -16,12 +16,13 @@ char keys[rows][cols] = {
   {'7','8','9'},
   {'#','0','*'}
 };
-byte rowPins[rows] = {2, 3, 4, 5}; //connect to the row pinouts of the keypad
-byte colPins[cols] = {6, 7, 8}; //connect to the column pinouts of the keypad
+byte rowPins[rows] = {2, 3, 4, 5}; //brown, purple, red, white
+byte colPins[cols] = {6, 7, 8}; //black, blue, orange
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 
 String code = "";
-int codestart = 0;
+unsigned long codestart = 0;
+unsigned long animation_offset = 0;
 
 void setup() {
   Serial.begin(9600);
@@ -29,23 +30,26 @@ void setup() {
     ; // wait for serial port to connect
   }
   
-  LEDS.addLeds<WS2801>(leds, NUM_LEDS);
+  LEDS.addLeds<WS2801, 11, 13, BGR, DATA_RATE_MHZ(1)>(leds, NUM_LEDS); //green, yellow
   LEDS.showColor(CRGB(255, 100, 0));
   
   delay(1000);
-  Serial.println("Ready...");
-  Serial.println(code.length());
+  animation_offset = 0;
 }
 
 void loop() {
+  if(animation_offset > millis()) { // need to account for millis() rolling over around 50 days. Might glitch animation for a frame
+    animation_offset = 0;
+  }
   char key = keypad.getKey();
   if(key != NO_KEY) {
     codestart = millis(); //reset the timeout
-    if(key == '#' || key == '*') {
-      if(code.length <= 0) {
+    if(key == '#' || key == '*') { //submit for authorization on these two keys
+      if(code.length() <= 3) { //codes have to be at least four digits
         alert_deny();
+        code = "";
       } else {
-        if(authorize(code)) {
+        if(authorize(code)) { //authorize the code via serial
           alert_allow();
           code = "";
         } else {
@@ -53,11 +57,11 @@ void loop() {
           code = "";
         }
       }
-    } else {
+    } else { //for all non # or * keys, just append it to the currently-entered code
       code += key;
     }
   }
-  if(millis() - codestart > 5000) {
+  if(code.length() > 0 && (millis() - codestart) > 5000) { //5-second timeout on entry
     code = "";
   }
   if(code.length() <= 0) {
@@ -70,34 +74,37 @@ void loop() {
 boolean authorize(String code) { //given a PIN, check authorization via serial
   status_thinking();
   Serial.println("Code: " + code);
-  return(false);
   while(!Serial.available()) {
     status_thinking();
   }
-  return(boolean(Serial.read()));
+  char r = Serial.read();
+  if(r == 'y') {
+    return(true);
+  }
+  return(false);
 }
 
-void status_idling() { //slowly "breathe" blue, deterministic: call as often as convenient (or possible)
-  if(millis() % 10 == 0) {
-    LEDS.showColor(CRGB(0, 0, floor((sin(float(millis()) / 1000.0) * 0.5 + 0.5) * 255)));
+void status_idling() { //slowly "breathe" blue, single frame per call
+  if((millis() - animation_offset) % 10 == 0) {
+    LEDS.showColor(CRGB(0, 0, floor((sin(float(millis() - animation_offset) / 1000.0) * 0.5 + 0.5) * 255)));
   }
 }
 
-void status_reading() { //spin a rainbow, deterministic: call as often as convenient (or possible)
-  if(millis() % 10 == 0) {
-    fill_rainbow(leds, NUM_LEDS, float(millis()) / 4.0, 20.0);
+void status_reading() { //spin a rainbow, single frame per call
+  if((millis() - animation_offset) % 10 == 0) {
+    fill_rainbow(leds, NUM_LEDS, float(millis() - animation_offset) / 4.0, 20.0);
     LEDS.show();
   }
 }
 
-void status_thinking() { //quickly "breathe" yellow, deterministic: call as often as convenient (or possible)
-  if(millis() % 10 == 0) {
-    int v = floor((sin(float(millis()) / 100.0) * 0.5 + 0.5) * 255);
+void status_thinking() { //quickly "breathe" yellow, single frame per call
+  if((millis() - animation_offset) % 10 == 0) {
+    int v = floor((sin(float(millis() - animation_offset) / 100.0) * 0.5 + 0.5) * 255);
     LEDS.showColor(CRGB(v, v, 0));
   }
 }
 
-void alert_deny() { //flash red three times and fade out after the third, blocking: takes roughly 1 second total
+void alert_deny() { //flash red three times and fade out after the third, blocking during animation, takes roughly 1
   LEDS.showColor(CRGB(255, 0, 0));
   delay(100);
   LEDS.showColor(CRGB(0, 0, 0));
@@ -120,17 +127,15 @@ void alert_deny() { //flash red three times and fade out after the third, blocki
     LEDS.showColor(CRGB(ii, 0, 0));
     delay(10);
   }
+  animation_offset = millis();
 }
 
-void alert_allow() { //illuminate green and fade out after a bit, blocking: takes roughly 5 seconds total
-  LEDS.showColor(CRGB(0, 255, 0));
-  delay(100);
-  LEDS.showColor(CRGB(0, 0, 0));
-  delay(50);
+void alert_allow() { //illuminate green and fade out after a bit, blocking during animation, takes roughly 5
   LEDS.showColor(CRGB(0, 255, 0));
   delay(2500);
   for(int ii = 255; ii >= 0; --ii) {
     LEDS.showColor(CRGB(0, ii, 0));
     delay(10);
   }
+  animation_offset = millis();
 }
