@@ -1,10 +1,12 @@
-#include <FastSPI_LED2.h>
+#include <Keypad.h> // This MUST be first when building for teensy due to some header issues
+#include <FastLED.h>
 #include <math.h>
-#include <Keypad.h>
 
 #define DOOR_PIN 9
 
 #define NUM_LEDS 12
+
+#define MAX_CODE_LEN 100
 
 struct CRGB leds[NUM_LEDS];
 
@@ -14,22 +16,26 @@ char keys[rows][cols] = {
   {'1','2','3'},
   {'4','5','6'},
   {'7','8','9'},
-  {'#','0','*'}
+  {'*','0','#'}
 };
 byte rowPins[rows] = {2, 3, 4, 5}; //brown, purple, red, white
 byte colPins[cols] = {6, 7, 8}; //black, blue, orange
 Keypad keypad = Keypad( makeKeymap(keys), rowPins, colPins, rows, cols );
 
-String code = "";
+String code = String("");
 unsigned long codestart = 0;
 unsigned long animation_offset = 0;
 
 void setup() {
+  code.reserve(MAX_CODE_LEN);
+  digitalWrite(DOOR_PIN, LOW);
   Serial.begin(9600);
   while (!Serial) {
     ; // wait for serial port to connect
   }
+  Serial.println("Ready");
   
+  pinMode(DOOR_PIN, OUTPUT);
   LEDS.addLeds<WS2801, 11, 13, BGR, DATA_RATE_MHZ(1)>(leds, NUM_LEDS); //green, yellow
   LEDS.showColor(CRGB(255, 100, 0));
   
@@ -38,28 +44,9 @@ void setup() {
 }
 
 void loop() {
+  digitalWrite(DOOR_PIN, LOW); // just keep doing this forever for safety's sake
   if(animation_offset > millis()) { // need to account for millis() rolling over around 50 days. Might glitch animation for a frame
     animation_offset = 0;
-  }
-  char key = keypad.getKey();
-  if(key != NO_KEY) {
-    codestart = millis(); //reset the timeout
-    if(key == '#' || key == '*') { //submit for authorization on these two keys
-      if(code.length() <= 3) { //codes have to be at least four digits
-        alert_deny();
-        code = "";
-      } else {
-        if(authorize(code)) { //authorize the code via serial
-          alert_allow();
-          code = "";
-        } else {
-          alert_deny();
-          code = "";
-        }
-      }
-    } else { //for all non # or * keys, just append it to the currently-entered code
-      code += key;
-    }
   }
   if(code.length() > 0 && (millis() - codestart) > 5000) { //5-second timeout on entry
     code = "";
@@ -69,9 +56,42 @@ void loop() {
   } else {
     status_reading();
   }
+  char key = keypad.getKey();
+  if(key != NO_KEY) {
+    codestart = millis(); //reset the timeout
+    if(key == '#' || key == '*') { //submit for authorization on these two keys
+      if(code.length() <= 3 || code.length() > MAX_CODE_LEN) { //codes have to be at least four digits
+        alert_deny();
+        code = "";
+      } else {
+        if(authorize(code)) { //authorize the code via serial
+          digitalWrite(DOOR_PIN, HIGH);
+          alert_allow();
+          digitalWrite(DOOR_PIN, LOW);
+          code = "";
+        } else {
+          alert_deny();
+          code = "";
+        }
+      }
+    } else { //for all non # or * keys, just append it to the currently-entered code
+      code += key;
+      Serial.println(code);
+      LEDS.showColor(CRGB(255, 255, 255));
+      delay(200);
+    }
+  }
 }
 
 boolean authorize(String code) { //given a PIN, check authorization via serial
+  //Serial.println(code);
+  // temporary hard-coded code
+  if(code.equals("1593570")) {
+    return(true);
+  } else {
+    return(false);
+  }
+  /*
   status_thinking();
   Serial.println("Code: " + code);
   while(!Serial.available()) {
@@ -82,6 +102,7 @@ boolean authorize(String code) { //given a PIN, check authorization via serial
     return(true);
   }
   return(false);
+  */
 }
 
 void status_idling() { //slowly "breathe" blue, single frame per call
@@ -123,7 +144,7 @@ void alert_deny() { //flash red three times and fade out after the third, blocki
   delay(50);
   LEDS.showColor(CRGB(255, 0, 0));
   delay(100);
-  for(int ii = 255; ii >= 0; ii-=2) {
+  for(int ii = 255; ii >= 0; ii-=4) {
     LEDS.showColor(CRGB(ii, 0, 0));
     delay(10);
   }
